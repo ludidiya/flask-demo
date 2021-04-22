@@ -11,6 +11,11 @@
     {% endblock %}
 </head>
 <body>
+    <!-- get_flashed_messages()函数用来在模板中获取提示消息 -->
+    {% for message in get_flashed_messages() %}
+    <div class="alert">{{ message }}</div>
+    {% endfor %}
+
     <h2>
         <img alt="Avatar" class="avatar" src="{{ url_for('static', filename='images/avatar.png') }}">
         {{ user.name }}'s Watchlist
