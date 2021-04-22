@@ -110,13 +110,22 @@ def forge():
     db.session.commit()
     click.echo('Done.')
 
-# 在程序里操作数据库
+
+# 模板上下文处理函数
+# 这个函数返回的变量（以字典键值对的形式）将会统一注入到每一个模板的上下文环境中，因此可以直接在模板中使用。
+@app.context_processor
+def inject_user():
+    user = User.query.first()
+    return dict(user=user)  # 需要返回字典，等同于 return {'user': user}
+
+# 用app.errorhandler() 装饰器注册一个错误处理函数
+# 它的作用和视图函数类似，当 404 错误发生时，这个函数会被触发，返回值会作为响应主体返回给客户端
+@app.errorhandler(404)
+def page_not_found(e):
+    return render_template('404.html'), 404   # 返回模板和状态码（404.html中user变量已通过‘模板上下文处理函数’传递）
+
 # 在主页试图读取数据库记录
 @app.route('/')
 def index():
-    user = User.query.first() # 读取用户记录，返回的是数据库的对象，所以在index中还需要通过user.name来提取具体值
-    movies = Movie.query.all() # 读取所有电影记录
-    return render_template('index.html', user=user, movies=movies)
-    #return render_template('index.html', name=name, movies=movies)
-
-# 创建一个函数来生成数据库中的虚拟数据
+    movies = Movie.query.all()
+    return render_template('index.html', movies=movies) # user变量已通过‘模板上下文处理函数’传递
