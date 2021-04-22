@@ -29,7 +29,7 @@ def test_url_for():
 
 
 # 定义虚拟数据
-name = 'Grey Li'
+name = 'Diadia LING'
 movies = [
     {'title': 'My Neighbor Totoro', 'year': '1988'},
     {'title': 'Dead Poets Society', 'year': '1989'},
