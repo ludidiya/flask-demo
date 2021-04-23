@@ -3,7 +3,7 @@
 <head>
     {% block head %}
     <meta charset="utf-8">
-    {# 添加了一个新的 <meta> 元素，这个元素会设置页面的视口，让页面根据设备的宽度来自动缩放页面，让移动设备拥有更好的浏览体验 #}
+<!--    添加了一个新的 <meta> 元素，这个元素会设置页面的视口，让页面根据设备的宽度来自动缩放页面，让移动设备拥有更好的浏览体验-->
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ user.name }}'s Watchlist</title>
     <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
@@ -21,10 +21,15 @@
         {{ user.name }}'s Watchlist
     </h2>
 
-    {# nav导航栏 #}
+<!-- nav导航栏-->
     <nav>
         <ul>
             <li><a href="{{ url_for('index') }}">Home</a></li>
+            {% if current_user.is_authenticated %}
+            <li><a href="{{ url_for('setting') }}">Setting</a></li>
+            {% else %}
+            <li><a href="{{ url_for('login') }}">Login</a></li>
+            {% endif %}
         </ul>
     </nav>
     {% block content %}{% endblock %}

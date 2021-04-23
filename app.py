@@ -15,6 +15,7 @@ from flask import Flask, escape, url_for, render_template, request, flash, redir
 # 7）redirect() ：重定向响应是一类特殊的响应，它会返回一个新的 URL，浏览器在接受到这样的响应后会向这个新 URL 再次发起一个新的请求。
 #          Flask 提供了 redirect() 函数来快捷生成这种响应
 #          传入重定向的目标 URL 作为参数，比如 redirect('http://helloflask.com')。
+app = Flask(__name__)
 
 from flask_sqlalchemy import SQLAlchemy
 # 导入扩展类:
@@ -26,6 +27,22 @@ from flask_sqlalchemy import SQLAlchemy
 # Flask 提供了一个统一的接口来写入和获取这些配置变量：Flask.config 字典。
 # 配置变量的名称必须使用大写，写入配置的语句一般会放到扩展类实例化语句之前。
 
+from werkzeug.security import generate_password_hash, check_password_hash
+# Flask 的依赖 Werkzeug 内置了用于生成和验证密码散列值的函数
+
+
+# 使用 Flask-Login 实现用户认证
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+login_manager = LoginManager(app)
+login_manager.login_view = 'login' # 添加了试图保护装饰器后，如果未登录的用户访问对应的 URL，Flask-Login 会把用户重定向到登录页面，并显示一个错误提示。
+# 1) 实例化扩展类
+# 2) 另一个步骤是让存储用户的 User 模型类继承 Flask-Login 提供的 UserMixin 类
+# 3) login_user：登入
+# 4) login_required, logout_user：登出
+
+##### 激活项目虚拟环境之后，需要安装的依赖包有
+# pip install flask
+# pip install flask-login
 
 WIN = sys.platform.startswith('win')
 if WIN:  # 如果是 Windows 系统，使用三个斜线
@@ -33,7 +50,7 @@ if WIN:  # 如果是 Windows 系统，使用三个斜线
 else:  # 否则使用四个斜线
     prefix = 'sqlite:////'
 
-app = Flask(__name__)
+
 app.config['SQLALCHEMY_DATABASE_URI'] = prefix + os.path.join(app.root_path, 'data.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False  # 关闭对模型修改的监控
 # flash() 函数在内部会把消息存储到 Flask 提供的 session 对象里。
@@ -62,11 +79,23 @@ def test_url_for():
 
 
 # 创建数据库模型
-class User(db.Model):
+class User(db.Model, UserMixin):
     # 模型类要声明继承 db.Model
+    # 继承这个类会让 User 类拥有几个用于判断认证状态的属性和方法，其中最常用的是 is_authenticated 属性：
+    # 如果当前用户已经登录，那么 current_user.is_authenticated 会返回 True，
+    # 否则返回 False。有了 current_user 变量和这几个验证方法和属性，我们可以很轻松的判断当前用户的认证状态。
+
     # 表名将会是 user（自动生成，小写处理）
-    id = db.Column(db.Integer, primary_key=True)  # 主键
-    name = db.Column(db.String(20))  # 名字
+    id = db.Column(db.Integer, primary_key=True) # 主键
+    name = db.Column(db.String(20)) # 名字
+    username = db.Column(db.String(20))  # 用户名
+    password_hash = db.Column(db.String(128))  # 密码散列值
+
+    def set_password(self, password):  # 用来设置密码的方法，接受密码作为参数
+        self.password_hash = generate_password_hash(password)  # 将生成的密码保持到对应字段
+
+    def validate_password(self, password):  # 用于验证密码的方法，接受密码作为参数
+        return check_password_hash(self.password_hash, password)  # 返回布尔值
 
 class Movie(db.Model):  # 表名将会是 movie
     id = db.Column(db.Integer, primary_key=True)  # 主键
@@ -106,6 +135,43 @@ def forge():
     db.session.commit()
     click.echo('Done.')
 
+# 编写一个自定义命令来自动执行创建数据库表操作
+@app.cli.command()  # 注册为命令
+@click.option('--drop', is_flag=True, help='Create after drop.')  # 设置选项
+def initdb(drop):
+    """Initialize the database."""
+    if drop:  # 判断是否输入了选项
+        db.drop_all()
+    db.create_all()
+    click.echo('Initialized database.')  # 输出提示信息
+
+
+# 编写一个命令来创建管理员账户，下面是实现这个功能的 admin() 函数
+@app.cli.command()
+@click.option('--username', prompt=True, help='The username used to login.')
+@click.option('--password', prompt=True, hide_input=True, confirmation_prompt=True, help='The password used to login.')
+def admin(username, password):
+    """Create user."""
+    db.create_all()
+
+    user = User.query.first()
+    if user is not None:
+        click.echo('Updating user...')
+        user.username = username
+        user.set_password(password)  # 设置密码
+    else:
+        click.echo('Creating user...')
+        user = User(username=username, name='Admin')
+        user.set_password(password)  # 设置密码
+        db.session.add(user)
+
+    db.session.commit()  # 提交数据库会话
+    click.echo('Done.')
+
+@login_manager.user_loader
+def load_user(user_id):  # 创建用户加载回调函数，接受用户 ID 作为参数
+    user = User.query.get(int(user_id))  # 用 ID 作为 User 模型的主键查询对应的用户
+    return user  # 返回用户对象
 
 # 模板上下文处理函数
 # 这个函数返回的变量（以字典键值对的形式）将会统一注入到每一个模板的上下文环境中，因此可以直接在模板中使用。
@@ -120,16 +186,43 @@ def inject_user():
 def page_not_found(e):
     return render_template('404.html'), 404   # 返回模板和状态码（404.html中user变量已通过‘模板上下文处理函数’传递）
 
-# # 在主页试图读取数据库记录
-# @app.route('/')
-# def index():
-#     movies = Movie.query.all()
-#     return render_template('index.html', movies=movies) # user变量已通过‘模板上下文处理函数’传递
+# 用户登录
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+
+        if not username or not password:
+            flash('Invalid input.')
+            return redirect(url_for('login'))
+
+        user = User.query.first()
+        # 验证用户名和密码是否一致
+        if username == user.username and user.validate_password(password):
+            login_user(user)  # 登入用户
+            flash('Login success.')
+            return redirect(url_for('index'))  # 重定向到主页
+
+        flash('Invalid username or password.')  # 如果验证失败，显示错误消息
+        return redirect(url_for('login'))  # 重定向回登录页面
+
+    return render_template('login.html')
+
+# 用户登出
+@app.route('/logout')
+@login_required  # 用于视图保护
+def logout():
+    logout_user()  # 登出用户
+    flash('Goodbye.')
+    return redirect(url_for('index'))  # 重定向回首页
 
 # 创建条目
 @app.route('/', methods=['GET', 'POST'])
 def index():
     if request.method == 'POST':  # 判断是否是 POST 请求
+        if not current_user.is_authenticated: # 如果当前用户未认证
+            return redirect(url_for('index')) # 重定向到主页
         # 获取表单数据
         title = request.form.get('title')  # 传入表单对应输入字段的 name 值
         # request.form 是一个特殊的字典，用表单字段的 name 属性值可以获取用户填入的对应数据
@@ -149,9 +242,10 @@ def index():
     movies = Movie.query.all()
     return render_template('index.html', movies=movies)
 
-# 修改条目
+# 编辑条目
 # <int:movie_id>: int是将变量转换成整型的 URL 变量转换器
 @app.route('/movie/edit/<int:movie_id>', methods=['GET', 'POST'])
+@login_required
 def edit(movie_id):
     # get_or_404() 方法，它会返回对应主键的记录，如果没有找到，则返回 404 错误响应。
     movie = Movie.query.get_or_404(movie_id)
@@ -174,9 +268,32 @@ def edit(movie_id):
 
 # 删除条目
 @app.route('/movie/delete/<int:movie_id>', methods=['POST'])  # 限定只接受 POST 请求
+@login_required  # 登录保护，登录用户才有权限
 def delete(movie_id):
     movie = Movie.query.get_or_404(movie_id)  # 获取电影记录
     db.session.delete(movie)  # 删除对应的记录
     db.session.commit()  # 提交数据库会话
     flash('Item deleted.')
     return redirect(url_for('index'))  # 重定向回主页
+
+# 支持用户设置名字的页面
+@app.route('/setting', methods=['GET', 'POST'])
+@login_required
+def setting():
+    if request.method == 'POST':
+        name = request.form['name']
+
+        if not name or len(name) > 20:
+            flash('Invalid input.')
+            return redirect(url_for('setting'))
+
+        current_user.name = name
+        # current_user 会返回当前登录用户的数据库记录对象
+        # 等同于下面的用法
+        # user = User.query.first()
+        # user.name = name
+        db.session.commit()
+        flash('Setting updated.')
+        return redirect(url_for('index'))
+
+    return render_template('setting.html')
