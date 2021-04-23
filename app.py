@@ -297,3 +297,10 @@ def setting():
         return redirect(url_for('index'))
 
     return render_template('setting.html')
+
+
+def sayhello(to=None):
+    if to:
+        return 'Hello, %s!' % to
+    return 'Hello!'
+
